@@ -1,4 +1,6 @@
-# Install all libraries by running in the terminal: pip install -q -r ./requirements.txt
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import streamlit as st
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
@@ -149,6 +151,3 @@ if __name__ == "__main__":
 
             # text area widget for the chat history
             st.text_area(label='Chat History', value=h, key='history', height=400)
-
-# run the app: streamlit run ./chat_with_documents.py
-
