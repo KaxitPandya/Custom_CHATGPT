@@ -121,7 +121,7 @@ if __name__ == "__main__":
     q = st.text_input('Ask a question about the content of your file:')
     if q:
         standard_answer = "Answer only based on the text you received as input. Don't search external sources. " \
-                          "If you can't answer then return `I DONT KNOW`."
+                          # "If you can't answer then return `I DONT KNOW`."
         q = f"{q} {standard_answer}"
 
         if 'vs' in st.session_state:
