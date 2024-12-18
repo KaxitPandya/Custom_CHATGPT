@@ -181,3 +181,11 @@ if __name__ == "__main__":
 
             # text area widget for the chat history
             st.text_area(label='Chat History', value=h, key='history', height=400)
+
+
+st.write(f'Number of chunks: {len(chunks)}')
+st.write(f'First chunk: {chunks[0].page_content[:200]}')  # Preview first chunk
+st.write(f'Embedding dimensions: {len(embeddings.embed_documents([chunks[0].page_content])[0])}')
+retrieved_docs = retriever.get_relevant_documents(q)
+st.write(f'Retrieved Documents: {[doc.page_content[:200] for doc in retrieved_docs]}')
+
