@@ -1,80 +1,60 @@
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+import os
 import streamlit as st
 from langchain_openai import OpenAIEmbeddings
-import chromadb
 from langchain_community.vectorstores import Chroma
-
+from dotenv import load_dotenv, find_dotenv
 
 # loading PDF, DOCX and TXT files as LangChain Documents
 def load_document(file):
-    import os
     name, extension = os.path.splitext(file)
 
     if extension == '.pdf':
         from langchain_community.document_loaders import PyPDFLoader
-        print(f'Loading {file}')
         loader = PyPDFLoader(file)
     elif extension == '.docx':
         from langchain_community.document_loaders import Docx2txtLoader
-        print(f'Loading {file}')
         loader = Docx2txtLoader(file)
     elif extension == '.txt':
         from langchain_community.document_loaders import TextLoader
         loader = TextLoader(file)
     else:
-        print('Document format is not supported!')
+        st.error('Document format is not supported!')
         return None
 
-    data = loader.load()
-    return data
-
+    return loader.load()
 
 # splitting data in chunks
 def chunk_data(data, chunk_size=256, chunk_overlap=20):
     from langchain.text_splitter import RecursiveCharacterTextSplitter
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    chunks = text_splitter.split_documents(data)
-    return chunks
+    return text_splitter.split_documents(data)
 
-
+# create embeddings and store in Chroma
 def create_embeddings(chunks, persist_directory="./chroma_storage"):
-    import chromadb
-    
-    # Create a PersistentClient instead of using Settings
+    from chromadb.config import Settings
     client = chromadb.PersistentClient(path=persist_directory)
-    
     embeddings = OpenAIEmbeddings(model='text-embedding-3-small', dimensions=1536)
-    
-    # Create a collection
+
     collection_name = "my_collection"
     collection = client.get_or_create_collection(collection_name)
-    
-    # Add documents to the collection
+
     ids = [str(i) for i in range(len(chunks))]
     texts = [chunk.page_content for chunk in chunks]
     metadatas = [chunk.metadata for chunk in chunks]
-    
+
     collection.add(
         ids=ids,
         documents=texts,
         metadatas=metadatas,
         embeddings=embeddings.embed_documents(texts)
     )
-    
-    # Create a Chroma instance using the new client
-    vector_store = Chroma(
-        client=client,
-        collection_name=collection_name,
-        embedding_function=embeddings
-    )
-    
-    return vector_store
 
+    return Chroma(client=client, collection_name=collection_name, embedding_function=embeddings)
 
-
-
+# retrieve and answer questions
 def ask_and_get_answer(vector_store, q, k=3):
     from langchain.chains import RetrievalQA
     from langchain_openai import ChatOpenAI
@@ -86,98 +66,78 @@ def ask_and_get_answer(vector_store, q, k=3):
     answer = chain.invoke(q)
     return answer['result']
 
-
-# calculate embedding cost using tiktoken
+# calculate embedding cost
 def calculate_embedding_cost(texts):
     import tiktoken
     enc = tiktoken.encoding_for_model('text-embedding-3-small')
     total_tokens = sum([len(enc.encode(page.page_content)) for page in texts])
-    # check prices here: https://openai.com/pricing
-    # print(f'Total Tokens: {total_tokens}')
-    # print(f'Embedding Cost in USD: {total_tokens / 1000 * 0.00002:.6f}')
     return total_tokens, total_tokens / 1000 * 0.00002
 
-
-# clear the chat history from streamlit session state
+# clear chat history
 def clear_history():
     if 'history' in st.session_state:
         del st.session_state['history']
 
-
 if __name__ == "__main__":
-    import os
-
-    # loading the OpenAI api key from .env
-    from dotenv import load_dotenv, find_dotenv
     load_dotenv(find_dotenv(), override=True)
 
     st.subheader('LLM Question-Answering Application 🤖')
+
     with st.sidebar:
-        # text_input for the OpenAI API key (alternative to python-dotenv and .env)
         api_key = st.text_input('OpenAI API Key:', type='password')
         if api_key:
             os.environ['OPENAI_API_KEY'] = api_key
 
-        # file uploader widget
         uploaded_file = st.file_uploader('Upload a file:', type=['pdf', 'docx', 'txt'])
 
-        # chunk size number widget
         chunk_size = st.number_input('Chunk size:', min_value=100, max_value=2048, value=512, on_change=clear_history)
 
-        # k number input widget
         k = st.number_input('k', min_value=1, max_value=20, value=3, on_change=clear_history)
 
-        # add data button widget
         add_data = st.button('Add Data', on_click=clear_history)
 
-        if uploaded_file and add_data: # if the user browsed a file
+        if uploaded_file and add_data:
             with st.spinner('Reading, chunking and embedding file ...'):
-
-                # writing the file from RAM to the current directory on disk
                 bytes_data = uploaded_file.read()
                 file_name = os.path.join('./', uploaded_file.name)
                 with open(file_name, 'wb') as f:
                     f.write(bytes_data)
 
                 data = load_document(file_name)
-                chunks = chunk_data(data, chunk_size=chunk_size)
-                st.write(f'Chunk size: {chunk_size}, Chunks: {len(chunks)}')
+                if data is None:
+                    st.error("Failed to load document.")
+                else:
+                    chunks = chunk_data(data, chunk_size=chunk_size)
+                    st.write(f'Chunk size: {chunk_size}, Chunks: {len(chunks)}')
 
-                tokens, embedding_cost = calculate_embedding_cost(chunks)
-                st.write(f'Embedding cost: ${embedding_cost:.4f}')
+                    tokens, embedding_cost = calculate_embedding_cost(chunks)
+                    st.write(f'Embedding cost: ${embedding_cost:.4f}')
 
-                # creating the embeddings and returning the Chroma vector store
-                vector_store = create_embeddings(chunks)
+                    vector_store = create_embeddings(chunks)
+                    st.session_state.vs = vector_store
+                    st.success('File uploaded, chunked, and embedded successfully.')
 
-                # saving the vector store in the streamlit session state (to be persistent between reruns)
-                st.session_state.vs = vector_store
-                st.success('File uploaded, chunked and embedded successfully.')
-
-    # user's question text input widget
     q = st.text_input('Ask a question about the content of your file:')
-    if q: # if the user entered a question and hit enter
+    if q:
         standard_answer = "Answer only based on the text you received as input. Don't search external sources. " \
                           "If you can't answer then return `I DONT KNOW`."
         q = f"{q} {standard_answer}"
-        if 'vs' in st.session_state: # if there's the vector store (user uploaded, split and embedded a file)
+
+        if 'vs' in st.session_state:
             vector_store = st.session_state.vs
             st.write(f'k: {k}')
             answer = ask_and_get_answer(vector_store, q, k)
 
-            # text area widget for the LLM answer
             st.text_area('LLM Answer: ', value=answer)
 
             st.divider()
 
-            # if there's no chat history in the session state, create it
             if 'history' not in st.session_state:
                 st.session_state.history = ''
 
-            # the current question and answer
             value = f'Q: {q} \nA: {answer}'
 
             st.session_state.history = f'{value} \n {"-" * 100} \n {st.session_state.history}'
             h = st.session_state.history
 
-            # text area widget for the chat history
             st.text_area(label='Chat History', value=h, key='history', height=400)
