@@ -3,7 +3,9 @@ import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import streamlit as st
 from langchain_openai import OpenAIEmbeddings
+import chromadb
 from langchain_community.vectorstores import Chroma
+
 
 # loading PDF, DOCX and TXT files as LangChain Documents
 def load_document(file):
@@ -37,25 +39,39 @@ def chunk_data(data, chunk_size=256, chunk_overlap=20):
     return chunks
 
 
-# create embeddings using OpenAIEmbeddings() and save them in a Chroma vector store
 def create_embeddings(chunks, persist_directory="./chroma_storage"):
-    from chromadb.config import Settings
+    import chromadb
     
-    # Ensure the Chroma instance uses a persistent storage directory
-    chroma_settings = Settings(
-        chroma_db_impl="sqlite",
-        persist_directory=persist_directory,
-    )
+    # Create a PersistentClient instead of using Settings
+    client = chromadb.PersistentClient(path=persist_directory)
     
     embeddings = OpenAIEmbeddings(model='text-embedding-3-small', dimensions=1536)
-    vector_store = Chroma.from_documents(
-        chunks, embeddings, persist_directory=persist_directory, client_settings=chroma_settings
+    
+    # Create a collection
+    collection_name = "my_collection"
+    collection = client.get_or_create_collection(collection_name)
+    
+    # Add documents to the collection
+    ids = [str(i) for i in range(len(chunks))]
+    texts = [chunk.page_content for chunk in chunks]
+    metadatas = [chunk.metadata for chunk in chunks]
+    
+    collection.add(
+        ids=ids,
+        documents=texts,
+        metadatas=metadatas,
+        embeddings=embeddings.embed_documents(texts)
     )
     
-    # Persist the vector store to disk
-    vector_store.persist()
+    # Create a Chroma instance using the new client
+    vector_store = Chroma(
+        client=client,
+        collection_name=collection_name,
+        embedding_function=embeddings
+    )
     
     return vector_store
+
 
 
 
