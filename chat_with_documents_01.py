@@ -38,10 +38,25 @@ def chunk_data(data, chunk_size=256, chunk_overlap=20):
 
 
 # create embeddings using OpenAIEmbeddings() and save them in a Chroma vector store
-def create_embeddings(chunks):
-    embeddings = OpenAIEmbeddings(model='text-embedding-3-small', dimensions=1536)  # 512 works as well
-    vector_store = Chroma.from_documents(chunks, embeddings)
+def create_embeddings(chunks, persist_directory="./chroma_storage"):
+    from chromadb.config import Settings
+    
+    # Ensure the Chroma instance uses a persistent storage directory
+    chroma_settings = Settings(
+        chroma_db_impl="sqlite",
+        persist_directory=persist_directory,
+    )
+    
+    embeddings = OpenAIEmbeddings(model='text-embedding-3-small', dimensions=1536)
+    vector_store = Chroma.from_documents(
+        chunks, embeddings, persist_directory=persist_directory, client_settings=chroma_settings
+    )
+    
+    # Persist the vector store to disk
+    vector_store.persist()
+    
     return vector_store
+
 
 
 def ask_and_get_answer(vector_store, q, k=3):
@@ -80,7 +95,6 @@ if __name__ == "__main__":
     from dotenv import load_dotenv, find_dotenv
     load_dotenv(find_dotenv(), override=True)
 
-    # st.image('img.png')
     st.subheader('LLM Question-Answering Application 🤖')
     with st.sidebar:
         # text_input for the OpenAI API key (alternative to python-dotenv and .env)
