@@ -129,7 +129,7 @@ if __name__ == "__main__":
             st.write(f'k: {k}')
             answer = ask_and_get_answer(vector_store, q, k)
 
-            st.text_area('LLM Answer: ', value=answer)
+            st.text_area('LLM Answer: ', value=answer, height=500)
 
             st.divider()
 
